@@ -1,0 +1,1431 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>汽車引擎診斷模擬系統 - 專業電路版</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --panel-color: #ffffff;
+            --accent-color: #3498db;
+            --text-color: #333;
+            --wire-break-color: #e74c3c;
+        }
+
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 10px; /* 手機版邊距縮小 */
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            user-select: none;
+            overflow: auto; 
+            /* 防止手機下拉刷新干擾操作 */
+            overscroll-behavior: none;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+            min-height: 90vh;
+            height: auto;
+            transform-origin: top center;
+            transition: transform 0.2s ease;
+            padding-bottom: 50px; /* 預留底部空間給浮動探棒 */
+        }
+
+        /* 左側與右側面板容器 */
+        .left-panel, .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--panel-color);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 20px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+
+        h3 { 
+            margin-top: 0; 
+            border-bottom: 2px solid #eee; 
+            padding-bottom: 10px; 
+            font-size: 1.2em;
+        }
+
+        /* 1. 引擎結構圖 */
+        .engine-map {
+            flex: 1;
+            background: #e1e8ed;
+            position: relative;
+            border: 2px dashed #bdc3c7;
+            min-height: 380px; /* 增加高度以容納調整後的元件 */
+        }
+
+        .engine-block {
+            width: 240px; /* 調整寬度 */
+            height: 160px; /* 調整高度 */
+            background: #7f8c8d;
+            position: absolute;
+            top: 50%; /* 垂直置中 */
+            left: 50%; /* 水平置中 */
+            transform: translate(-50%, -50%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.2);
+            z-index: 2;
+        }
+
+        .component-btn {
+            position: absolute;
+            padding: 8px 12px; /* 稍微增加按鈕內距 */
+            background: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 5;
+            white-space: nowrap;
+        }
+
+        .component-btn:hover { transform: scale(1.1); background: #2980b9; }
+        .component-btn.active { background: #e67e22; border: 2px solid #d35400; }
+
+        /* 使用 calc 相對定位，確保按鈕永遠貼合引擎區塊 */
+        /* 引擎區塊中心點為 50%，高度 160px (半高 80px) */
+        
+        #sensor-ect { 
+            top: calc(50% - 100px); /* 位於引擎上方邊緣 */
+            left: calc(50% + 10px); /* 中心點向右偏移 */
+        } 
+        
+        #sensor-tps { 
+            top: calc(50% - 100px); /* 位於引擎上方邊緣 */
+            right: calc(50% + 10px); /* 中心點向左偏移 (使用 right 屬性推擠) */
+            left: auto; /* 清除 left 屬性 */
+            opacity: 1; 
+            cursor: pointer; 
+        } 
+        
+        #act-fan { 
+            top: calc(50% + 95px); /* 位於引擎下方邊緣 */
+            left: 50%; 
+            width: 180px;
+            transform: translateX(-50%); 
+            opacity: 1; 
+            cursor: pointer; 
+            z-index: 5; 
+            text-align: center; 
+        }
+        #act-fan:hover { transform: translateX(-50%) scale(1.1); }
+        
+        .wiring-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        /* 2. 線路圖容器 */
+        .circuit-container {
+            position: relative;
+            background: #fff;
+            border: 1px solid #ddd;
+            height: 250px; /* 預設高度 */
+            margin-bottom: 15px;
+            overflow: hidden; /* 防止溢出 */
+        }
+
+        .circuit-view {
+            width: 100%; height: 100%;
+            position: absolute; top: 0; left: 0;
+            display: none;
+        }
+        .circuit-view.active { display: block; }
+
+        .broken-line {
+            stroke-dasharray: 40 20 200 !important;
+            opacity: 0.5;
+        }
+
+        .test-point {
+            width: 30px; /* 手機版加大觸控點 */
+            height: 30px;
+            background: rgba(255, 215, 0, 0.4);
+            border: 2px solid orange;
+            border-radius: 50%;
+            position: absolute;
+            z-index: 10;
+            transform: translate(-50%, -50%);
+            transition: background 0.2s;
+            cursor: crosshair;
+        }
+        .test-point.touched {
+            background: rgba(46, 204, 113, 0.8);
+            border-color: #27ae60;
+            box-shadow: 0 0 10px #2ecc71;
+        }
+
+        /* 線路量測點 (60%) */
+        #tp-ect-signal { top: 130px; left: 60%; }
+        #tp-ect-ground { top: 190px; left: 60%; }
+
+        #tp-tps-vcc    { top: 100px; left: 60%; }
+        #tp-tps-signal { top: 140px; left: 60%; }
+        #tp-tps-ground { top: 180px; left: 60%; }
+
+        #tp-fan-high { top: 80px; left: 60%; }
+        #tp-fan-med  { top: 120px; left: 60%; }
+        #tp-fan-low  { top: 160px; left: 60%; }
+        #tp-fan-gnd  { top: 200px; left: 60%; }
+
+        /* 電瓶負極量測點位置 */
+        .tp-batt {
+            top: 200px;
+            left: 12.5%; 
+            border-color: #333;
+            background: rgba(0,0,0,0.2);
+        }
+
+        /* 3. 三用電錶 */
+        .multimeter {
+            background: #34495e; color: #ecf0f1;
+            padding: 15px; border-radius: 10px;
+            display: flex; flex-direction: column; align-items: center;
+            border: 4px solid #2c3e50;
+        }
+        .mm-display {
+            background: #9caab0; font-family: 'Courier New', monospace;
+            font-size: 2.2em; color: #111;
+            width: 90%; padding: 10px; text-align: right;
+            border-radius: 4px; box-shadow: inset 0 2px 5px rgba(0,0,0,0.3);
+            margin-bottom: 15px; height: 40px; line-height: 40px;
+        }
+        .mm-controls { display: flex; gap: 10px; width: 100%; justify-content: center;}
+        .mm-knob-btn {
+            padding: 8px 10px; border: none; border-radius: 4px;
+            cursor: pointer; font-weight: bold; background: #555; color: #ddd; flex: 1;
+            font-size: 0.9em;
+        }
+        .mm-knob-btn.active { background: #e74c3c; color: white; box-shadow: 0 0 5px #c0392b; }
+
+        /* 4. 探棒 */
+        .probe {
+            width: 14px; height: 120px;
+            position: fixed; z-index: 9999; cursor: grab;
+            display: flex; flex-direction: column; align-items: center;
+            filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.5));
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform-origin: center center;
+            /* 讓探棒不會因為頁面縮放而跑掉太遠 */
+            touch-action: none;
+        }
+        .probe:active { cursor: grabbing; }
+        .probe-handle {
+            width: 14px; height: 90px; border-radius: 4px;
+            background: linear-gradient(90deg, rgba(255,255,255,0.2), rgba(0,0,0,0.1));
+        }
+        .probe-tip {
+            width: 4px; height: 30px; 
+            background: #444; 
+            clip-path: polygon(0 0, 100% 0, 50% 100%);
+        }
+        .probe-contact-point {
+            width: 2px; height: 2px; background: red;
+            position: absolute; bottom: 0; left: 50%;
+            transform: translateX(-50%); opacity: 0;
+        }
+        .probe-red .probe-handle { background-color: #c0392b; }
+        .probe-black .probe-handle { background-color: #2c3e50; }
+
+        .control-panel {
+            margin-top: auto; padding: 15px;
+            background: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;
+        }
+        .sim-ctrl-group { display: none; }
+        .sim-ctrl-group.active { display: block; }
+        
+        .tooltip {
+            font-size: 0.8em; color: #888; margin-top: 5px;
+            background: #fff; padding: 5px; border-radius: 4px;
+            border: 1px dashed #ccc; text-align: center;
+        }
+
+        .fan-btn-group { display: flex; gap: 5px; margin-top: 10px; }
+        .fan-btn {
+            flex: 1; padding: 8px; border: 1px solid #ccc;
+            background: #fff; cursor: pointer; border-radius: 4px;
+            font-size: 0.9em;
+        }
+        .fan-btn.active { background: #27ae60; color: white; border-color: #219150; }
+
+        .fault-btn-group { 
+            display: flex; 
+            flex-wrap: wrap; 
+            gap: 8px; 
+            margin-top: 15px; 
+            border-top: 1px solid #ddd; 
+            padding-top: 10px; 
+        }
+        .fault-btn {
+            flex: 1 0 45%; /* 手機上一行兩個按鈕 */
+            padding: 8px; 
+            border: 1px solid #c0392b; 
+            color: #c0392b;
+            background: #fff; 
+            cursor: pointer; 
+            border-radius: 4px; 
+            font-weight: bold; 
+            font-size: 0.8em;
+            text-align: center;
+        }
+        .fault-btn.active { background: #c0392b; color: white; }
+        
+        /* 頁腳樣式 */
+        .footer {
+            grid-column: 1 / -1; 
+            text-align: center;
+            padding: 10px 0;
+            font-size: 0.85em;
+            color: #7f8c8d;
+            border-top: 1px solid #ecf0f1;
+            margin-top: 20px;
+        }
+
+        .zoom-controls {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 8px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            border: 1px solid #ddd;
+        }
+        .zoom-btn {
+            width: 36px;
+            height: 36px;
+            border: 1px solid #ccc;
+            background: white;
+            cursor: pointer;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 1.2em;
+            color: #555;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .zoom-btn:hover { background: #f0f0f0; color: #333; border-color: #aaa; }
+        .zoom-label {
+            font-size: 0.7em; text-align: center; color: #666; margin-bottom: 3px;
+        }
+
+        /* ----- 響應式設計 (RWD) 斷點 ----- */
+        @media (max-width: 900px) {
+            .container {
+                grid-template-columns: 1fr; /* 轉為單欄 */
+                gap: 15px;
+            }
+
+            /* 手機版隱藏縮放按鈕 (手機通常用雙指縮放) 
+               或者保留，這裡保留以符合您的需求 */
+            .zoom-controls {
+                top: auto; 
+                bottom: 20px; 
+                right: 20px; /* 移到右下角避免擋住上方資訊 */
+                flex-direction: row; /* 改為橫向排列 */
+                transform: scale(0.9);
+            }
+
+            /* 使用 Flex order 重新排列手機版順序 
+               桌面: 左(地圖,控制) 右(電路,電錶)
+               手機目標: 地圖 -> 電路 -> 電錶 -> 控制
+            */
+            
+            /* 將左右面板的內容打散重新排序有點困難，
+               這裡我們讓左面板(地圖)在最上，右面板(電路+電錶)在中間，左面板(控制)在最後?
+               這需要改變 HTML 結構或使用 display: contents 
+            */
+            
+            /* 簡單方案：直接堆疊，左面板在上，右面板在下。
+               左: 地圖, 控制
+               右: 電路, 電錶
+               結果: 地圖 -> 控制 -> 電路 -> 電錶
+               這可能不太順手，控制在電路前面。
+            */
+
+            /* 改用 Flexbox 來處理整個容器的順序 (如果結構允許) */
+            /* 由於結構是 .left-panel 和 .right-panel，我們只能控制這兩個大的區塊 */
+            .left-panel { order: 1; }
+            .right-panel { order: 2; }
+            
+            /* 為了更好的 UX，我們可以在手機版隱藏 "控制面板" 在左側的顯示，
+               並將其移動到最下方? 
+               不，保持簡單：地圖 -> 控制 -> 電路 -> 電錶 也是可行的。
+               
+               或者使用更進階的技巧: 讓 .container display: flex; flex-direction: column;
+            */
+            .container {
+                display: flex;
+                flex-direction: column;
+            }
+
+            /* 我們希望順序是: 
+               1. Engine Map (Left)
+               2. Circuit Box (Right)
+               3. Multimeter (Right)
+               4. Control Panel (Left)
+            */
+            .left-panel { display: contents; }
+            .right-panel { display: contents; }
+
+            .engine-map { order: 1; min-height: 300px; }
+            .circuit-container { order: 2; } /* Card wrapping circuit-box needs order */
+            /* 注意：.circuit-container 是在 .card 裡面。我们需要对 .card 进行 order */
+            
+            /* 選取包含特定 ID 的父層 card 比較困難，這裡假設順序：
+               HTML 結構: 
+               Left: [Card:Map], [Card:Controls]
+               Right: [Card:Circuit], [Card:Multimeter]
+            */
+            
+            /* 利用 nth-child 選取 (脆弱但有效) */
+            /* Left Panel children (now direct children of container due to display:contents) */
+            /* Map is 1st child of Left Panel */
+            .engine-map { order: 1; }
+            
+            /* Circuit is 1st child of Right Panel */
+            .right-panel > .card:nth-child(1) { order: 2; }
+            
+            /* Multimeter is 2nd child of Right Panel */
+            .right-panel > .card:nth-child(2) { order: 3; }
+
+            /* Control Panel is 2nd child of Left Panel */
+            .control-panel { order: 4; }
+
+            .footer { order: 5; }
+
+            /* 調整手機版字體與間距 */
+            .mm-display { font-size: 1.8em; }
+            .test-point { width: 32px; height: 32px; } /* 更大的觸控區 */
+        }
+
+    </style>
+</head>
+<body>
+
+<!-- 縮放控制按鈕 -->
+<div class="zoom-controls">
+    <div class="zoom-label">縮放</div>
+    <button class="zoom-btn" onclick="adjustZoom(0.1)" title="放大">+</button>
+    <button class="zoom-btn" onclick="adjustZoom(-0.1)" title="縮小">-</button>
+    <button class="zoom-btn" onclick="resetZoom()" title="重置">R</button>
+</div>
+
+<div class="container" id="main-container">
+    <div class="left-panel">
+        <div class="card engine-map">
+            <h3>1. 引擎室結構圖 (點選零件)</h3>
+            <svg class="wiring-layer" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <line x1="40" y1="40" x2="40" y2="74" stroke="#e74c3c" stroke-width="1.2" />
+                <line x1="46.6" y1="40" x2="46.6" y2="74" stroke="#f1c40f" stroke-width="1.2" />
+                <line x1="53.3" y1="40" x2="53.3" y2="74" stroke="#00e600" stroke-width="1.2" />
+                <line x1="60" y1="40" x2="60" y2="74" stroke="#000000" stroke-width="1.2" />
+            </svg>
+            <div class="engine-block">ENGINE</div>
+            <button class="component-btn" id="sensor-ect" onclick="selectComponent('ECT')">水溫感知器 (ECT)</button>
+            <button class="component-btn" id="sensor-tps" onclick="selectComponent('TPS')">節氣門感知器 (TPS)</button>
+            <button class="component-btn" id="act-fan" onclick="selectComponent('FAN')">冷卻風扇</button>
+        </div>
+
+        <div class="card control-panel">
+            <h3>4. 參數模擬與故障設定</h3>
+            <!-- ECT 模擬控制 -->
+            <div id="ctrl-ect" class="sim-ctrl-group">
+                <div style="margin-bottom: 15px;">
+                    <label>引擎冷卻水溫: <span id="val-ect" style="color:#e74c3c; font-weight:bold;">80°C</span></label>
+                    <input type="range" id="slider-ect" min="0" max="120" value="80" style="width:100%; margin-top:10px;">
+                    <div style="font-size: 0.85em; color: #666; margin-top:5px;">狀態: 連接 ECU 時生效</div>
+                </div>
+
+                <div style="margin-bottom: 15px; padding: 10px; background: #ecf0f1; border-radius: 6px; border-left: 4px solid #3498db;">
+                    <label>零件環境溫度 (獨立量測): <span id="val-env-temp" style="color:#3498db; font-weight:bold;">25°C</span></label>
+                    <input type="range" id="slider-env-temp" min="-20" max="150" value="25" style="width:100%; margin-top:10px;">
+                    <div style="font-size: 0.8em; color: #555; margin-top:5px;">
+                        💡 模擬拆下接頭，請按下「信號線左斷」及「搭鐵線左斷」，量測水溫感知器元件電阻時使用。
+                    </div>
+                </div>
+                
+                <div class="fault-btn-group">
+                    <button class="fault-btn" id="btn-fault-ect-res" onclick="toggleFault('ectRes')">⚠️ 內部電阻斷路</button>
+                    <button class="fault-btn" id="btn-fault-ect-sig-left" onclick="toggleFault('ectSigLeft')">⚠️ 信號線 左斷</button>
+                    <button class="fault-btn" id="btn-fault-ect-sig-right" onclick="toggleFault('ectSigRight')">⚠️ 信號線 右斷</button>
+                    <button class="fault-btn" id="btn-fault-ect-gnd-left" onclick="toggleFault('ectGndLeft')">⚠️ 搭鐵線 左斷</button>
+                    <button class="fault-btn" id="btn-fault-ect-gnd-right" onclick="toggleFault('ectGndRight')">⚠️ 搭鐵線 右斷</button>
+                </div>
+            </div>
+
+            <!-- TPS 模擬控制 -->
+            <div id="ctrl-tps" class="sim-ctrl-group">
+                <div style="margin-bottom: 10px;">
+                    <label>油門開度: <span id="val-tps" style="color:#9b59b6; font-weight:bold;">0%</span></label>
+                    <input type="range" id="slider-tps" min="0" max="100" value="0" style="width:100%; margin-top:10px;">
+                </div>
+                
+                <div style="margin-bottom: 15px; padding: 10px; background: #ecf0f1; border-radius: 6px; border-left: 4px solid #9b59b6;">
+                    <div style="font-size: 0.8em; color: #555;">
+                        💡 提示：同時按下下方「電源線 左斷」及「搭鐵線 左斷」按鈕，即可模擬拆下感知器獨立量測內阻。
+                    </div>
+                </div>
+
+                <div class="fault-btn-group">
+                    <button class="fault-btn" id="btn-fault-tps-vcc-left" onclick="toggleFault('tpsVccLeft')">⚠️ 電源線 左斷</button>
+                    <button class="fault-btn" id="btn-fault-tps-vcc-right" onclick="toggleFault('tpsVccRight')">⚠️ 電源線 右斷</button>
+                    <button class="fault-btn" id="btn-fault-tps-sig-left" onclick="toggleFault('tpsSigLeft')">⚠️ 信號線 左斷</button>
+                    <button class="fault-btn" id="btn-fault-tps-sig-right" onclick="toggleFault('tpsSigRight')">⚠️ 信號線 右斷</button>
+                    <button class="fault-btn" id="btn-fault-tps-gnd-left" onclick="toggleFault('tpsGndLeft')">⚠️ 搭鐵線 左斷</button>
+                    <button class="fault-btn" id="btn-fault-tps-gnd-right" onclick="toggleFault('tpsGndRight')">⚠️ 搭鐵線 右斷</button>
+                </div>
+            </div>
+
+            <!-- FAN 模擬控制 -->
+            <div id="ctrl-fan" class="sim-ctrl-group">
+                <div style="margin-bottom: 10px;">
+                    <label>風扇狀態控制: <span id="val-fan" style="color:#27ae60; font-weight:bold;">關閉</span></label>
+                    <div class="fan-btn-group">
+                        <button class="fan-btn active" onclick="setFanSpeed('OFF')">關閉</button>
+                        <button class="fan-btn" onclick="setFanSpeed('LOW')">低速</button>
+                        <button class="fan-btn" onclick="setFanSpeed('MED')">中速</button>
+                        <button class="fan-btn" onclick="setFanSpeed('HIGH')">高速</button>
+                    </div>
+                    <div style="margin-top:10px; font-weight:bold; color:#555;">目前轉速: <span id="fan-rpm">0</span> RPM</div>
+                </div>
+
+                <div style="margin-bottom: 15px; padding: 10px; background: #ecf0f1; border-radius: 6px; border-left: 4px solid #27ae60;">
+                    <div style="font-size: 0.8em; color: #555;">
+                        💡 提示：拆開元件量測，請將高速、中速、低速與搭鐵左斷都一起按下以模擬元件斷路量馬達電阻。
+                    </div>
+                </div>
+
+                <div class="fault-btn-group">
+                    <button class="fault-btn" id="btn-fault-fan-high-left" onclick="toggleFault('fanHighLeft')">⚠️ 高速線 左斷</button>
+                    <button class="fault-btn" id="btn-fault-fan-high-right" onclick="toggleFault('fanHighRight')">⚠️ 高速線 右斷</button>
+                    <button class="fault-btn" id="btn-fault-fan-med-left" onclick="toggleFault('fanMedLeft')">⚠️ 中速線 左斷</button>
+                    <button class="fault-btn" id="btn-fault-fan-med-right" onclick="toggleFault('fanMedRight')">⚠️ 中速線 右斷</button>
+                    <button class="fault-btn" id="btn-fault-fan-low-left" onclick="toggleFault('fanLowLeft')">⚠️ 低速線 左斷</button>
+                    <button class="fault-btn" id="btn-fault-fan-low-right" onclick="toggleFault('fanLowRight')">⚠️ 低速線 右斷</button>
+                    <button class="fault-btn" id="btn-fault-fan-gnd-left" onclick="toggleFault('fanGndLeft')">⚠️ 搭鐵線 左斷</button>
+                    <button class="fault-btn" id="btn-fault-fan-gnd-right" onclick="toggleFault('fanGndRight')">⚠️ 搭鐵線 右斷</button>
+                </div>
+            </div>
+
+            <div id="ctrl-none" class="sim-ctrl-group active" style="color:#999; font-style:italic;">請先選擇上方零件以啟用模擬</div>
+            <button onclick="resetProbes()" style="margin-top:15px; padding:8px; cursor:pointer; width:100%; border:1px solid #ccc; border-radius:4px; background:#f0f0f0;">重置探棒位置</button>
+        </div>
+    </div>
+
+    <div class="right-panel">
+        <div class="card">
+            <h3>2. 檢測工作台: <span id="current-comp-name" style="color:var(--accent-color);">請先選擇零件</span></h3>
+            
+            <div class="circuit-container" id="circuit-box">
+                <!-- ECT 視圖 -->
+                <div id="view-ect" class="circuit-view">
+                    <svg width="100%" height="100%" viewBox="0 0 400 250" style="position:absolute;" preserveAspectRatio="none">
+                        <!-- Battery Symbol Group -->
+                        <g transform="translate(30, 200)">
+                            <!-- Plates -->
+                            <line x1="0" y1="-10" x2="0" y2="10" stroke="#333" stroke-width="2" />
+                            <line x1="-10" y1="-20" x2="-10" y2="20" stroke="#333" stroke-width="2" />
+                            <!-- Text -->
+                            <text x="-25" y="-25" font-size="12" fill="#e74c3c" font-weight="bold">+</text>
+                            <text x="5" y="-15" font-size="12" fill="#333" font-weight="bold">-</text>
+                            <text x="-15" y="35" font-size="10" fill="#666">BATT</text>
+                            <!-- Negative Connection Line to Ground (x=0 to x=40) -->
+                            <line x1="0" y1="0" x2="40" y2="0" stroke="#333" stroke-width="2"/>
+                            <circle cx="40" cy="0" r="3" fill="#333"/>
+                            <!-- Decoration wires (Positive side updated to Red) -->
+                            <line x1="-10" y1="0" x2="-30" y2="0" stroke="#e74c3c" stroke-width="2"/>
+                            <line x1="-30" y1="0" x2="-30" y2="-150" stroke="#e74c3c" stroke-width="2" stroke-dasharray="4"/>
+                        </g>
+
+                        <!-- ECU (向左平移 60 單位: 120 -> 60) -->
+                        <rect x="60" y="20" width="80" height="210" fill="#ecf0f1" stroke="#333" stroke-width="2"/>
+                        <text x="75" y="45" font-weight="bold" fill="#555">ECU</text>
+                        <text x="70" y="70" font-size="10" fill="#777">5V Pull-up</text>
+                        <rect x="90" y="80" width="10" height="20" stroke="#333" fill="none"/>
+                        <line x1="95" y1="100" x2="95" y2="130" stroke="#333" />
+                        
+                        <!-- Wires (Split ECT Signal and Ground) -->
+                        <!-- Signal -->
+                        <line id="wire-ect-signal-left" x1="95" y1="130" x2="240" y2="130" stroke="#e74c3c" stroke-width="3" />
+                        <line id="wire-ect-signal-right" x1="240" y1="130" x2="300" y2="130" stroke="#e74c3c" stroke-width="3" />
+                        <text x="120" y="125" font-size="12" fill="#c0392b">信號線 THW</text>
+                        <!-- Ground -->
+                        <line id="wire-ect-ground-left" x1="95" y1="190" x2="240" y2="190" stroke="#333" stroke-width="3" />
+                        <line id="wire-ect-ground-right" x1="240" y1="190" x2="300" y2="190" stroke="#333" stroke-width="3" />
+                        <text x="120" y="205" font-size="12" fill="#333">搭鐵線 E2</text>
+                        
+                        <!-- Sensor (位置維持不變) -->
+                        <rect x="300" y="90" width="90" height="130" fill="#fff" stroke="#3498db" stroke-width="2" rx="5"/>
+                        <text x="310" y="240" font-size="14" fill="#3498db" font-weight="bold">水溫感知器</text>
+                        <path id="comp-ect-res" d="M330,130 L350,130 L355,145 L365,115 L375,145 L380,130 L390,130" fill="none" stroke="#333" stroke-width="2"/>
+                        <line x1="390" y1="130" x2="390" y2="190" stroke="#333" stroke-width="2"/>
+                        <line x1="330" y1="190" x2="390" y2="190" stroke="#333" stroke-width="2"/>
+                        <circle cx="300" cy="130" r="3" fill="#333"/>
+                        <circle cx="300" cy="190" r="3" fill="#333"/>
+                    </svg>
+                    <div class="test-point" id="tp-ect-signal" data-type="ect-signal" title="量測點: 信號線"></div>
+                    <div class="test-point" id="tp-ect-ground" data-type="ect-ground" title="量測點: 搭鐵線"></div>
+                    <div class="test-point tp-batt" id="tp-ect-batt-gnd" data-type="batt-gnd" title="量測點: 電瓶負極 (接地)"></div>
+                </div>
+
+                <!-- TPS 視圖 -->
+                <div id="view-tps" class="circuit-view">
+                    <svg width="100%" height="100%" viewBox="0 0 400 250" style="position:absolute;" preserveAspectRatio="none">
+                         <!-- Battery Symbol -->
+                         <g transform="translate(30, 200)">
+                            <line x1="0" y1="-10" x2="0" y2="10" stroke="#333" stroke-width="2" />
+                            <line x1="-10" y1="-20" x2="-10" y2="20" stroke="#333" stroke-width="2" />
+                            <text x="-25" y="-25" font-size="12" fill="#e74c3c" font-weight="bold">+</text>
+                            <text x="5" y="-15" font-size="12" fill="#333" font-weight="bold">-</text>
+                            <text x="-15" y="35" font-size="10" fill="#666">BATT</text>
+                            <line x1="0" y1="0" x2="40" y2="0" stroke="#333" stroke-width="2"/>
+                            <circle cx="40" cy="0" r="3" fill="#333"/>
+                            <!-- Decoration wires (Positive side updated to Red) -->
+                            <line x1="-10" y1="0" x2="-30" y2="0" stroke="#e74c3c" stroke-width="2"/>
+                            <line x1="-30" y1="0" x2="-30" y2="-150" stroke="#e74c3c" stroke-width="2" stroke-dasharray="4"/>
+                        </g>
+
+                        <!-- ECU (向左平移 60 單位: 120 -> 60) -->
+                        <rect x="60" y="20" width="80" height="210" fill="#ecf0f1" stroke="#333" stroke-width="2"/>
+                        <text x="75" y="45" font-weight="bold" fill="#555">ECU</text>
+                        
+                        <!-- Wires for TPS VCC (Split) -->
+                        <line id="wire-tps-vcc-left" x1="140" y1="100" x2="240" y2="100" stroke="#e74c3c" stroke-width="3" />
+                        <line id="wire-tps-vcc-right" x1="240" y1="100" x2="300" y2="100" stroke="#e74c3c" stroke-width="3" />
+                        <text x="150" y="95" font-size="12" fill="#c0392b">電源 5V (Vc)</text>
+                        
+                        <!-- Wires for TPS SIGNAL (Split) -->
+                        <line id="wire-tps-signal-left" x1="140" y1="140" x2="240" y2="140" stroke="#27ae60" stroke-width="3" />
+                        <line id="wire-tps-signal-right" x1="240" y1="140" x2="300" y2="140" stroke="#27ae60" stroke-width="3" />
+                        <text x="150" y="135" font-size="12" fill="#27ae60">信號線 (VTA)</text>
+                        
+                        <!-- Wires for TPS Ground (Split) -->
+                        <line id="wire-tps-ground-left" x1="140" y1="180" x2="240" y2="180" stroke="#333" stroke-width="3" />
+                        <line id="wire-tps-ground-right" x1="240" y1="180" x2="300" y2="180" stroke="#333" stroke-width="3" />
+                        <text x="150" y="175" font-size="12" fill="#333">搭鐵線 (E2)</text>
+                        
+                        <!-- Sensor -->
+                        <rect x="300" y="70" width="90" height="150" fill="#fff" stroke="#9b59b6" stroke-width="2" rx="5"/>
+                        <text x="310" y="220" font-size="14" fill="#9b59b6" font-weight="bold">節氣門感知器</text>
+                        <rect x="340" y="100" width="10" height="80" fill="none" stroke="#333" stroke-width="2" />
+                        <line x1="300" y1="100" x2="340" y2="100" stroke="#333" stroke-width="2"/>
+                        <line x1="300" y1="180" x2="340" y2="180" stroke="#333" stroke-width="2"/>
+                        <line x1="300" y1="140" x2="325" y2="140" stroke="#333" stroke-width="2"/>
+                        <polygon points="325,140 335,135 335,145" fill="#333" />
+                        <circle cx="300" cy="100" r="3" fill="#333"/>
+                        <circle cx="300" cy="140" r="3" fill="#333"/>
+                        <circle cx="300" cy="180" r="3" fill="#333"/>
+                    </svg>
+                    <div class="test-point" id="tp-tps-vcc" data-type="tps-vcc" title="量測點: 5V電源"></div>
+                    <div class="test-point" id="tp-tps-signal" data-type="tps-signal" title="量測點: 信號線"></div>
+                    <div class="test-point" id="tp-tps-ground" data-type="tps-ground" title="量測點: 搭鐵線"></div>
+                    <div class="test-point tp-batt" id="tp-tps-batt-gnd" data-type="batt-gnd" title="量測點: 電瓶負極 (接地)"></div>
+                </div>
+
+                <!-- FAN 視圖 -->
+                <div id="view-fan" class="circuit-view">
+                    <svg width="100%" height="100%" viewBox="0 0 400 250" style="position:absolute;" preserveAspectRatio="none">
+                         <!-- Battery Symbol -->
+                         <g transform="translate(30, 200)">
+                            <line x1="0" y1="-10" x2="0" y2="10" stroke="#333" stroke-width="2" />
+                            <line x1="-10" y1="-20" x2="-10" y2="20" stroke="#333" stroke-width="2" />
+                            <text x="-25" y="-25" font-size="12" fill="#e74c3c" font-weight="bold">+</text>
+                            <text x="5" y="-15" font-size="12" fill="#333" font-weight="bold">-</text>
+                            <text x="-15" y="35" font-size="10" fill="#666">BATT</text>
+                            <line x1="0" y1="0" x2="40" y2="0" stroke="#333" stroke-width="2"/>
+                            <circle cx="40" cy="0" r="3" fill="#333"/>
+                            <!-- Decoration wires (Positive side updated to Red) -->
+                            <line x1="-10" y1="0" x2="-30" y2="0" stroke="#e74c3c" stroke-width="2"/>
+                            <line x1="-30" y1="0" x2="-30" y2="-150" stroke="#e74c3c" stroke-width="2" stroke-dasharray="4"/>
+                        </g>
+
+                        <!-- Relay Box (向左平移 60 單位: 120 -> 60) -->
+                        <rect x="60" y="20" width="100" height="210" fill="#ecf0f1" stroke="#333" stroke-width="2"/>
+                        <text x="70" y="45" font-weight="bold" fill="#555">繼電器盒</text>
+                        
+                        <!-- Wires (Split all 4 lines) -->
+                        <!-- High -->
+                        <line id="wire-fan-high-left" x1="160" y1="80" x2="240" y2="80" stroke="#e74c3c" stroke-width="3" />
+                        <line id="wire-fan-high-right" x1="240" y1="80" x2="300" y2="80" stroke="#e74c3c" stroke-width="3" />
+                        <text x="170" y="75" font-size="12" fill="#c0392b">高速 (HI)</text>
+                        <!-- Med -->
+                        <line id="wire-fan-med-left" x1="160" y1="120" x2="240" y2="120" stroke="#f39c12" stroke-width="3" />
+                        <line id="wire-fan-med-right" x1="240" y1="120" x2="300" y2="120" stroke="#f39c12" stroke-width="3" />
+                        <text x="170" y="115" font-size="12" fill="#d35400">中速 (MED)</text>
+                        <!-- Low -->
+                        <line id="wire-fan-low-left" x1="160" y1="160" x2="240" y2="160" stroke="#f1c40f" stroke-width="3" />
+                        <line id="wire-fan-low-right" x1="240" y1="160" x2="300" y2="160" stroke="#f1c40f" stroke-width="3" />
+                        <text x="170" y="155" font-size="12" fill="#f39c12">低速 (LO)</text>
+                        <!-- Ground -->
+                        <line id="wire-fan-gnd-left" x1="160" y1="200" x2="240" y2="200" stroke="#333" stroke-width="3" />
+                        <line id="wire-fan-gnd-right" x1="240" y1="200" x2="300" y2="200" stroke="#333" stroke-width="3" />
+                        <text x="170" y="195" font-size="12" fill="#333">搭鐵 (E)</text>
+
+                        <!-- Motor -->
+                        <rect x="300" y="50" width="90" height="180" fill="#fff" stroke="#27ae60" stroke-width="2" rx="5"/>
+                        <text x="310" y="220" font-size="14" fill="#27ae60" font-weight="bold">冷卻風扇馬達</text>
+                        <circle cx="345" cy="140" r="30" fill="none" stroke="#333" stroke-width="2"/>
+                        <text x="335" y="148" font-size="24" fill="#333">M</text>
+                        <line x1="300" y1="80" x2="345" y2="110" stroke="#e74c3c" stroke-width="1"/>
+                        <!-- 修正中速線連接到圓心 (y=140) -->
+                        <line x1="300" y1="120" x2="345" y2="140" stroke="#f39c12" stroke-width="1"/>
+                        <!-- 修正低速線連接到圓下方的點 (y=150) -->
+                        <line x1="300" y1="160" x2="345" y2="150" stroke="#f1c40f" stroke-width="1"/>
+                        <line x1="300" y1="200" x2="345" y2="170" stroke="#333" stroke-width="1"/>
+                        <circle cx="150" cy="80" r="4" fill="#e74c3c"/>
+                        <circle cx="150" cy="120" r="4" fill="#f39c12"/>
+                        <circle cx="150" cy="160" r="4" fill="#f1c40f"/>
+                        <circle cx="150" cy="200" r="4" fill="#333"/>
+                    </svg>
+                    <div class="test-point" id="tp-fan-high" data-type="fan-high" title="量測點: 高速電源"></div>
+                    <div class="test-point" id="tp-fan-med" data-type="fan-med" title="量測點: 中速電源"></div>
+                    <div class="test-point" id="tp-fan-low" data-type="fan-low" title="量測點: 低速電源"></div>
+                    <div class="test-point" id="tp-fan-gnd" data-type="fan-gnd" title="量測點: 搭鐵線"></div>
+                    <div class="test-point tp-batt" id="tp-fan-batt-gnd" data-type="batt-gnd" title="量測點: 電瓶負極 (接地)"></div>
+                </div>
+
+                <div id="overlay-mask" style="position:absolute; inset:0; background:rgba(255,255,255,0.8); display:flex; align-items:center; justify-content:center; z-index:20;">
+                    <span style="color:#7f8c8d; font-weight:bold;">請點擊左側零件開始</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card multimeter">
+            <h3>3. 數位三用電錶</h3>
+            <div class="mm-display" id="mm-display"></div>
+            <div class="mm-controls">
+                <button class="mm-knob-btn active" onclick="setMode('OFF')">OFF</button>
+                <button class="mm-knob-btn" onclick="setMode('DCV')">V (電壓)</button>
+                <button class="mm-knob-btn" onclick="setMode('OHM')">Ω (電阻)</button>
+            </div>
+            <div class="tooltip">💡 提示：黑色探棒接電瓶負極，紅色探棒量測各點電壓。</div>
+            <div class="tooltip" style="margin-top: 10px;">💡 提示：要轉換探棒的量測角度，請在探棒處連續點兩下就可以改變探棒量測角度。</div>
+        </div>
+    </div>
+    
+    <!-- 新增頁腳文字 -->
+    <div class="footer">
+        設計者：國立臺東專科學校汽車科 林慶泓 老師 and Gemini<br>
+        <div style="display: grid; grid-template-columns: auto auto; justify-content: center; gap: 0; margin-top: 5px; text-align: left;">
+            <div>版本資訊：</div>
+            <div>
+                汽車引擎診斷模擬系統第4版-新增適用於電腦、平板與手機裝置功能<br>
+                汽車引擎診斷模擬系統第3版-新增視窗畫面縮放功能<br>
+                汽車引擎診斷模擬系統第2版-新增故障設置與元件拆卸量測功能<br>
+                汽車引擎診斷模擬系統第1版-初始檢測功能版本
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="probe probe-red" id="probe-red" style="top: 70%; left: 75%; transform: rotate(45deg);">
+    <div class="probe-handle"></div>
+    <div class="probe-tip"></div>
+    <div class="probe-contact-point"></div>
+</div>
+
+<div class="probe probe-black" id="probe-black" style="top: 70%; left: 60%; transform: rotate(-45deg);">
+    <div class="probe-handle"></div>
+    <div class="probe-tip"></div>
+    <div class="probe-contact-point"></div>
+</div>
+
+<svg style="position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:8000;">
+    <path id="wire-red" stroke="#c0392b" stroke-width="3" fill="none" opacity="0.6"/>
+    <path id="wire-black" stroke="#2c3e50" stroke-width="3" fill="none" opacity="0.6"/>
+</svg>
+
+<script>
+    const state = {
+        activeComponent: null,
+        // 新增 envTemp 參數，預設 25度
+        params: { ectTemp: 80, tpsOpen: 0, fanSpeed: 'OFF', envTemp: 25 },
+        faults: {
+            ectRes: false,
+            // ECT 故障點
+            ectSigLeft: false, ectSigRight: false,
+            ectGndLeft: false, ectGndRight: false,
+            // TPS 故障點
+            tpsVccLeft: false, tpsVccRight: false,
+            tpsSigLeft: false, tpsSigRight: false,
+            tpsGndLeft: false, tpsGndRight: false,
+            // FAN 故障點
+            fanHighLeft: false, fanHighRight: false,
+            fanMedLeft: false, fanMedRight: false,
+            fanLowLeft: false, fanLowRight: false,
+            fanGndLeft: false, fanGndRight: false,
+        },
+        mode: 'OFF',
+        probes: { red: null, black: null },
+        rotation: { red: 0, black: 0 }
+    };
+
+    const elDisplay = document.getElementById('mm-display');
+    const elOverlay = document.getElementById('overlay-mask');
+    const elCompName = document.getElementById('current-comp-name');
+    const probeRed = document.getElementById('probe-red');
+    const probeBlack = document.getElementById('probe-black');
+    const valEct = document.getElementById('val-ect');
+    const valEnvTemp = document.getElementById('val-env-temp'); // 新增
+    const valTps = document.getElementById('val-tps');
+    const valFan = document.getElementById('val-fan');
+    const valFanRpm = document.getElementById('fan-rpm');
+
+    window.onload = () => {
+        resetProbes();
+        updateMultimeter();
+        drawWires();
+    };
+
+    // 修正3: 畫面縮放控制邏輯
+    let currentScale = 1.0;
+    function adjustZoom(delta) {
+        currentScale += delta;
+        // 限制縮放範圍 0.5 ~ 2.0
+        if(currentScale < 0.5) currentScale = 0.5;
+        if(currentScale > 2.0) currentScale = 2.0;
+        applyZoom();
+    }
+    
+    function resetZoom() {
+        currentScale = 1.0;
+        applyZoom();
+    }
+
+    function applyZoom() {
+        const container = document.getElementById('main-container');
+        // 使用 CSS transform: scale() 來縮放，相容性較好
+        container.style.transform = `scale(${currentScale})`;
+        // 調整完縮放後，可能需要調整外容器高度以避免大量留白，但對於 overflow: auto 的 body 來說
+        // 瀏覽器通常會自動處理 scroll area。
+        // 若縮小過多，版面會置中靠上。
+    }
+
+    function selectComponent(type) {
+        state.activeComponent = type;
+        elOverlay.style.display = 'none';
+        state.mode = 'OFF';
+        updateModeButtons();
+        elDisplay.innerText = "";
+        
+        // 重置所有故障
+        for(let key in state.faults) state.faults[key] = false;
+        updateFaultButtons();
+        updateCircuitVisuals();
+
+        document.querySelectorAll('.component-btn').forEach(btn => btn.classList.remove('active'));
+        if(type === 'ECT') document.getElementById('sensor-ect').classList.add('active');
+        if(type === 'TPS') document.getElementById('sensor-tps').classList.add('active');
+        if(type === 'FAN') document.getElementById('act-fan').classList.add('active');
+
+        if(type === 'ECT') elCompName.innerText = '水溫感知器 (ECT)';
+        if(type === 'TPS') elCompName.innerText = '節氣門感知器 (TPS)';
+        if(type === 'FAN') elCompName.innerText = '冷卻風扇 (Cooling Fan)';
+
+        document.querySelectorAll('.sim-ctrl-group').forEach(el => el.classList.remove('active'));
+        if(type === 'ECT') document.getElementById('ctrl-ect').classList.add('active');
+        if(type === 'TPS') document.getElementById('ctrl-tps').classList.add('active');
+        if(type === 'FAN') document.getElementById('ctrl-fan').classList.add('active');
+
+        document.querySelectorAll('.circuit-view').forEach(el => el.classList.remove('active'));
+        if(type === 'ECT') document.getElementById('view-ect').classList.add('active');
+        if(type === 'TPS') document.getElementById('view-tps').classList.add('active');
+        if(type === 'FAN') document.getElementById('view-fan').classList.add('active');
+
+        resetProbes();
+    }
+
+    document.getElementById('slider-ect').addEventListener('input', (e) => {
+        state.params.ectTemp = parseInt(e.target.value);
+        valEct.innerText = state.params.ectTemp + "°C";
+        updateMultimeter();
+    });
+
+    // 新增環境溫度滑桿監聽
+    document.getElementById('slider-env-temp').addEventListener('input', (e) => {
+        state.params.envTemp = parseInt(e.target.value);
+        valEnvTemp.innerText = state.params.envTemp + "°C";
+        updateMultimeter();
+    });
+
+    document.getElementById('slider-tps').addEventListener('input', (e) => {
+        state.params.tpsOpen = parseInt(e.target.value);
+        valTps.innerText = state.params.tpsOpen + "%";
+        updateMultimeter();
+    });
+    
+    // 修正 toggleFault 函式以處理新的信號線故障點邏輯 (確保左右故障互斥)
+    function toggleFault(faultType) {
+        const parts = faultType.match(/^(tpsVcc|tpsSig|tpsGnd|ectSig|ectGnd|fanHigh|fanMed|fanLow|fanGnd)(Left|Right)$/);
+        
+        if (parts) {
+            const wire = parts[1];
+            const side = parts[2];
+            const otherSide = side === 'Left' ? 'Right' : 'Left';
+            const otherFaultType = wire + otherSide;
+
+            // 確保同線路左右故障互斥
+            if (state.faults[otherFaultType]) {
+                state.faults[otherFaultType] = false;
+            }
+        }
+        
+        state.faults[faultType] = !state.faults[faultType];
+        updateFaultButtons();
+        updateCircuitVisuals();
+        if(state.activeComponent === 'FAN') setFanSpeed(state.params.fanSpeed);
+        updateMultimeter(); 
+    }
+
+    function setFanSpeed(speed) {
+        state.params.fanSpeed = speed;
+        document.querySelectorAll('.fan-btn').forEach(btn => btn.classList.remove('active'));
+        const btns = document.querySelectorAll('.fan-btn');
+        if(speed === 'OFF') btns[0].classList.add('active');
+        if(speed === 'LOW') btns[1].classList.add('active');
+        if(speed === 'MED') btns[2].classList.add('active');
+        if(speed === 'HIGH') btns[3].classList.add('active');
+
+        let statusText = "關閉";
+        let rpm = 0;
+        // 檢查是否有任何負責供電的線路被 Left Fault 斷路 (Actuator 側沒電)
+        const isSupplyBroken = 
+            (speed === 'HIGH' && state.faults.fanHighLeft) || 
+            (speed === 'MED' && state.faults.fanMedLeft) || 
+            (speed === 'LOW' && state.faults.fanLowLeft);
+            
+        // 檢查是否有搭鐵斷路 (左斷線路連到 Actuator，導致 Actuator 浮接)
+        const isGroundBroken = state.faults.fanGndLeft;
+
+        if (isGroundBroken || isSupplyBroken) {
+             statusText = "停止 (故障)";
+             rpm = 0;
+        } else if (!state.faults.fanGndRight && !state.faults.fanLowRight && !state.faults.fanMedRight && !state.faults.fanHighRight) {
+             // 正常運轉 (Right Fault 不影響 Actuator 供電)
+             if(speed === 'LOW') { statusText = "低速運轉"; rpm = 800; }
+             if(speed === 'MED') { statusText = "中速運轉"; rpm = 1800; }
+             if(speed === 'HIGH') { statusText = "高速運轉"; rpm = 2800; }
+        }
+        
+        valFan.innerText = statusText;
+        valFanRpm.innerText = rpm;
+        updateMultimeter();
+    }
+
+    function updateFaultButtons() {
+        for (let key in state.faults) {
+            let id = 'btn-fault-' + key.replace(/([A-Z])/g, '-$1').toLowerCase();
+            let btn = document.getElementById(id);
+            if(btn) {
+                if(state.faults[key]) btn.classList.add('active');
+                else btn.classList.remove('active');
+            }
+        }
+    }
+
+    function updateCircuitVisuals() {
+        const toggle = (id, isActive) => {
+            const el = document.getElementById(id);
+            if(el) {
+                if(isActive) el.classList.add('broken-line');
+                else el.classList.remove('broken-line');
+            }
+        };
+        
+        // ECT
+        toggle('wire-ect-signal-left', state.faults.ectSigLeft);
+        toggle('wire-ect-signal-right', state.faults.ectSigRight);
+        toggle('wire-ect-ground-left', state.faults.ectGndLeft);
+        toggle('wire-ect-ground-right', state.faults.ectGndRight);
+        toggle('comp-ect-res', state.faults.ectRes);
+
+        // TPS
+        toggle('wire-tps-vcc-left', state.faults.tpsVccLeft);
+        toggle('wire-tps-vcc-right', state.faults.tpsVccRight);
+        toggle('wire-tps-signal-left', state.faults.tpsSigLeft);
+        toggle('wire-tps-signal-right', state.faults.tpsSigRight);
+        toggle('wire-tps-ground-left', state.faults.tpsGndLeft);
+        toggle('wire-tps-ground-right', state.faults.tpsGndRight);
+        
+        // FAN
+        toggle('wire-fan-high-left', state.faults.fanHighLeft);
+        toggle('wire-fan-high-right', state.faults.fanHighRight);
+        toggle('wire-fan-med-left', state.faults.fanMedLeft);
+        toggle('wire-fan-med-right', state.faults.fanMedRight);
+        toggle('wire-fan-low-left', state.faults.fanLowLeft);
+        toggle('wire-fan-low-right', state.faults.fanLowRight);
+        toggle('wire-fan-gnd-left', state.faults.fanGndLeft);
+        toggle('wire-fan-gnd-right', state.faults.fanGndRight);
+    }
+
+    // --- 核心物理邏輯：計算所有節點的絕對電位 (相對於電瓶負極) ---
+    function getNodePotentials() {
+        const potentials = { 'batt-gnd': 0.0 }; // 參考點
+        const V_BATT = 12.0;
+        const V_REF = 5.0;
+
+        if (state.activeComponent === 'ECT') {
+            const temp = state.params.ectTemp;
+            let R_ntc = 3000 * Math.exp(-0.045 * (temp - 10));
+            if (state.faults.ectRes) R_ntc = Infinity;
+            const R_pullup = 2000;
+            
+            // 正常信號電壓 (假設無故障時)
+            let V_normal_signal = V_REF * (R_ntc / (R_ntc + R_pullup));
+            if (R_ntc === Infinity) V_normal_signal = V_REF;
+
+            // ECT Signal (TP位於 ECU側 和 Sensor側 之間)
+            
+            // ECT Signal Left Break (ECU -> TP 斷): TP 連接 Sensor。Sensor 透過 R_NTC 接 GND。
+            if (state.faults.ectSigLeft) {
+                // TP 讀取 0V (信號線左斷，TP側連接到 sensor 和 GND，被拉到 0V)
+                potentials['ect-signal'] = 0.0; // 修正為 0V
+            } 
+            // ECT Signal Right Break (TP -> Sensor 斷): TP 連接 ECU。ECU 內部有上拉電阻。
+            else if (state.faults.ectSigRight) {
+                // TP 讀取 V_REF (浮接高電位， ECU側上拉到 5V)
+                potentials['ect-signal'] = V_REF;
+            } 
+            // Normal
+            else {
+                potentials['ect-signal'] = V_normal_signal;
+            }
+            
+            // ECT Ground (TP位於 ECU側 和 Sensor側 之間)
+            // ECT Ground Left Break (ECU -> TP 斷): TP 連接 Sensor。Sensor 透過 R_NTC 接 Signal 線。
+            if (state.faults.ectGndLeft) {
+                // 搭鐵線斷路，TP 側浮接到 Signal 線路電壓 (V_REF)
+                potentials['ect-ground'] = V_REF;
+            } 
+            // ECT Ground Right Break (TP -> Sensor 斷): TP 連接 ECU。ECU 搭鐵線仍有效。
+            else if (state.faults.ectGndRight) {
+                // TP 讀取 0V (連接到 ECU 搭鐵)
+                potentials['ect-ground'] = 0.0;
+            }
+            // Normal
+            else {
+                potentials['ect-ground'] = 0.0;
+            }
+
+
+        } else if (state.activeComponent === 'TPS') {
+            
+            // 1. TPS VCC TP 計算
+            if (state.faults.tpsVccLeft) {
+                potentials['tps-vcc'] = 0.0;
+            } else {
+                potentials['tps-vcc'] = V_REF;
+            }
+
+            // 2. 判斷感知器是否有電源和搭鐵 (Internal State)
+            // 只有當 ECU 供電 (無 Left Break) 且 線路連接到感知器 (無 Right Break) 時，感知器才有 VCC
+            const sensorHasVcc = !state.faults.tpsVccLeft && !state.faults.tpsVccRight;
+            
+            // 只有當線路連接到 TP (無 Right Break) 且 TP 連接到 ECU Ground (無 Left Break) 時，感知器才有 Ground
+            const sensorHasGnd = !state.faults.tpsGndLeft && !state.faults.tpsGndRight;
+
+            // 3. TPS Ground TP 計算
+            if (state.faults.tpsGndLeft) {
+                // TP 與 ECU 斷開。若 TP 仍連接到感知器 (無 Right Break) 且感知器有 VCC，則 TP 會浮接至高電位
+                if (sensorHasVcc && !state.faults.tpsGndRight) {
+                     potentials['tps-ground'] = V_REF; // 浮接上拉
+                } else {
+                     potentials['tps-ground'] = 0.0; // 完全斷路/無電
+                }
+            } else {
+                // TP 連接到 ECU Ground
+                potentials['tps-ground'] = 0.0;
+            }
+
+            // 4. 計算感知器內部輸出電壓 (Internal V_out)
+            let vSensorOut = 0.0;
+            if (!sensorHasVcc) {
+                vSensorOut = 0.0; // 沒電 -> 輸出 0V
+            } else if (!sensorHasGnd) {
+                vSensorOut = V_REF; // 沒搭鐵 -> 內部電位浮接至 VCC
+            } else {
+                const opening = state.params.tpsOpen / 100;
+                vSensorOut = 0.5 + (4.0 * opening); // 正常運作
+            }
+
+            // 5. TPS Signal TP 計算
+            if (state.faults.tpsSigRight) {
+                // TP 與 感知器 斷開。TP 連接到 ECU。假設 ECU 輸入阻抗下拉或為 0。
+                potentials['tps-signal'] = 0.0;
+            } else {
+                // TP 連接到 感知器 (無論 SigLeft 是否斷路，TP 只要連著 Sensor 就會量到 Sensor 輸出)
+                potentials['tps-signal'] = vSensorOut;
+            }
+
+        } else if (state.activeComponent === 'FAN') {
+            const speed = state.params.fanSpeed;
+            // 設定各線正常供電狀態 (Relay/Source 端的電壓)
+            let v_supply = { high: 0, med: 0, low: 0 };
+            if(speed === 'HIGH') v_supply.high = V_BATT;
+            if(speed === 'MED') v_supply.med = V_BATT;
+            if(speed === 'LOW') v_supply.low = V_BATT;
+
+            // FAN 供電線路 (High/Med/Low) 邏輯
+            // Left Break (Source -> TP 斷): TP 連接 Actuator，失去電源，TP=0V
+            // Right Break (TP -> Actuator 斷): TP 連CH Source，仍有電源，TP=12V
+            
+            potentials['fan-high'] = state.faults.fanHighLeft ? 0.0 : v_supply.high;
+            potentials['fan-high'] = state.faults.fanHighRight ? V_BATT : potentials['fan-high']; // Right Fault 優先顯示源頭電壓
+
+            potentials['fan-med']  = state.faults.fanMedLeft ? 0.0 : v_supply.med;
+            potentials['fan-med']  = state.faults.fanMedRight ? V_BATT : potentials['fan-med'];
+
+            potentials['fan-low']  = state.faults.fanLowLeft ? 0.0 : v_supply.low;
+            potentials['fan-low']  = state.faults.fanLowRight ? V_BATT : potentials['fan-low'];
+
+
+            // FAN Ground 邏輯
+            // Left Break (Source -> TP 斷): TP 連接 Actuator，Actuator 側浮接，電壓浮高到 12V
+            // Right Break (TP -> Actuator 斷): TP 連接 Source/GND，仍有接地，TP=0V
+            
+            if (state.faults.fanGndLeft) {
+                // Actuator 側斷路/浮接
+                potentials['fan-gnd'] = V_BATT;
+            } else if (state.faults.fanGndRight) {
+                // ECU 側斷路/仍有接地
+                potentials['fan-gnd'] = 0.0;
+            } else {
+                potentials['fan-gnd'] = 0.0;
+            }
+        }
+        
+        return potentials;
+    }
+
+    function updateMultimeter() {
+        if (state.mode === 'OFF' || !state.activeComponent) {
+            elDisplay.innerText = "";
+            return;
+        }
+
+        const pRed = state.probes.red;
+        const pBlack = state.probes.black;
+
+        if (!pRed || !pBlack) {
+            elDisplay.innerText = (state.mode === 'OHM') ? "OL" : "0.00 V";
+            return;
+        }
+
+        const potentials = getNodePotentials();
+        
+        const vRed = potentials[pRed] !== undefined ? potentials[pRed] : 0.0;
+        const vBlack = potentials[pBlack] !== undefined ? potentials[pBlack] : 0.0;
+
+        if (state.mode === 'DCV') {
+            let val = vRed - vBlack;
+            elDisplay.innerText = val.toFixed(2) + " V";
+        } 
+        else if (state.mode === 'OHM') {
+            
+            let r_text = "OL";
+            const pins = [pRed, pBlack].sort().join('&');
+            
+            // ECT Sensor Res
+            if (state.activeComponent === 'ECT' && pins === 'ect-ground&ect-signal') {
+                
+                // 1. 檢查是否進入獨立測試模式 (模擬拆下接頭)
+                const isIsolated = state.faults.ectSigLeft && state.faults.ectGndLeft;
+                
+                // 2. 如果未斷開 ECU 連接 (未拆接頭)，顯示錯誤提示 (防呆)
+                if (!isIsolated) {
+                     r_text = "Err: 請斷電/拆接頭";
+                } 
+                else {
+                    // 3. 檢查是否有影響探棒接觸元件的斷路 (右斷)
+                    const isConnectionBroken = state.faults.ectSigRight || state.faults.ectGndRight;
+                    // 4. 檢查內部電阻是否斷路
+                    const isInternalBroken = state.faults.ectRes;
+
+                    if (isConnectionBroken || isInternalBroken) {
+                        r_text = "OL";
+                    } else {
+                        // 獨立測試模式：使用環境溫度
+                        const calcTemp = state.params.envTemp;
+                        // 計算 NTC 電阻
+                        let R = 3000 * Math.exp(-0.045 * (calcTemp - 10));
+                        r_text = (R/1000).toFixed(2) + " kΩ";
+                    }
+                }
+            } 
+            // TPS Sensor Res
+            else if (state.activeComponent === 'TPS') {
+                 // TPS 獨立測量模式條件：至少Vcc左斷 + Gnd左斷 (切斷電源)，信號線左斷可選但建議
+                 const isTpsPowerCut = state.faults.tpsVccLeft && state.faults.tpsGndLeft;
+                 
+                 if (!isTpsPowerCut) {
+                      r_text = "Err: 請斷電/拆接頭";
+                 } else {
+                     // 檢查是否有右側斷路(影響探棒到元件)
+                     let isRightBroken = false;
+                     if(pins.includes('tps-vcc') && state.faults.tpsVccRight) isRightBroken = true;
+                     if(pins.includes('tps-signal') && state.faults.tpsSigRight) isRightBroken = true;
+                     if(pins.includes('tps-ground') && state.faults.tpsGndRight) isRightBroken = true;
+
+                     if (!isRightBroken) {
+                         const TPS_TOTAL_R = 5000; // 5k
+                         const ratio = (0.5 + (4.0 * (state.params.tpsOpen / 100))) / 5.0;
+                         let measuredR = null;
+
+                         if ((pins.includes('tps-vcc') && pins.includes('tps-ground'))) {
+                             measuredR = TPS_TOTAL_R;
+                         } else if ((pins.includes('tps-vcc') && pins.includes('tps-signal'))) {
+                             measuredR = TPS_TOTAL_R * (1 - ratio);
+                         } else if ((pins.includes('tps-signal') && pins.includes('tps-ground'))) {
+                             measuredR = TPS_TOTAL_R * ratio;
+                         } 
+                         
+                         if (measuredR !== null) {
+                             r_text = (measuredR/1000).toFixed(2) + " kΩ";
+                         } else {
+                             r_text = "OL"; // 未接觸到正確的兩個腳位
+                         }
+                     } else {
+                         r_text = "OL";
+                     }
+                 }
+            }
+            // FAN Sensor Res
+            else if (state.activeComponent === 'FAN') {
+                 // FAN 獨立測量模式：所有四條線的左側都必須斷開 (模擬拔掉插頭)
+                 const isFanIsolated = state.faults.fanHighLeft && 
+                                       state.faults.fanMedLeft && 
+                                       state.faults.fanLowLeft && 
+                                       state.faults.fanGndLeft;
+
+                 if (!isFanIsolated) {
+                     r_text = "Err: 請斷電/拆接頭";
+                 } else {
+                     // 檢查右側斷路
+                     let isRightBroken = false;
+                     if(pins.includes('fan-high') && state.faults.fanHighRight) isRightBroken = true;
+                     if(pins.includes('fan-med') && state.faults.fanMedRight) isRightBroken = true;
+                     if(pins.includes('fan-low') && state.faults.fanLowRight) isRightBroken = true;
+                     if(pins.includes('fan-gnd') && state.faults.fanGndRight) isRightBroken = true;
+
+                     if (!isRightBroken) {
+                         // 馬達線圈電阻設定
+                         // Low: 2.5 Ohm, Med: 1.5 Ohm, High: 0.8 Ohm
+                         let measuredR = null;
+                         
+                         if (pins.includes('fan-gnd')) {
+                             if (pins.includes('fan-low')) measuredR = 2.5;
+                             else if (pins.includes('fan-med')) measuredR = 1.5;
+                             else if (pins.includes('fan-high')) measuredR = 0.8;
+                         }
+
+                         if (measuredR !== null) {
+                             r_text = measuredR.toFixed(1) + " Ω";
+                         } else {
+                             r_text = "OL"; // 其他腳位組合或未正確接觸
+                         }
+                     } else {
+                         r_text = "OL";
+                     }
+                 }
+            }
+            
+            elDisplay.innerText = r_text;
+        }
+    }
+
+    function initDraggable(elm, probeColor) {
+        let startX, startY, initialLeft, initialTop;
+        
+        elm.ondblclick = (e) => {
+            e.preventDefault();
+            state.rotation[probeColor] = (state.rotation[probeColor] + 45) % 360;
+            elm.style.transform = `rotate(${state.rotation[probeColor]}deg)`;
+            checkCollision(elm, probeColor);
+        };
+
+        elm.onmousedown = dragStart;
+        elm.ontouchstart = dragStart;
+
+        function dragStart(e) {
+            e.preventDefault();
+            const clientX = e.clientX || e.touches[0].clientX;
+            const clientY = e.clientY || e.touches[0].clientY;
+            startX = clientX; startY = clientY;
+            initialLeft = elm.offsetLeft; initialTop = elm.offsetTop;
+            document.onmouseup = dragEnd;
+            document.onmousemove = dragging;
+            document.ontouchend = dragEnd;
+            document.ontouchmove = dragging;
+            elm.style.cursor = 'grabbing';
+            elm.style.transition = 'none';
+        }
+
+        function dragging(e) {
+            e.preventDefault();
+            const clientX = e.clientX || e.touches[0].clientX;
+            const clientY = e.clientY || e.touches[0].clientY;
+            elm.style.left = (initialLeft + clientX - startX) + "px";
+            elm.style.top = (initialTop + clientY - startY) + "px";
+            checkCollision(elm, probeColor);
+        }
+
+        function dragEnd() {
+            document.onmouseup = null; document.onmousemove = null;
+            document.ontouchend = null; document.ontouchmove = null;
+            elm.style.cursor = 'grab';
+            elm.style.transition = 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+        }
+    }
+
+    function checkCollision(probeElm, color) {
+        const contactPoint = probeElm.querySelector('.probe-contact-point');
+        const cpRect = contactPoint.getBoundingClientRect();
+        const tipX = cpRect.left + cpRect.width / 2;
+        const tipY = cpRect.top + cpRect.height / 2;
+        
+        let touchedType = null;
+        
+        const activeView = state.activeComponent === 'ECT' ? document.getElementById('view-ect') : 
+                           state.activeComponent === 'TPS' ? document.getElementById('view-tps') :
+                           state.activeComponent === 'FAN' ? document.getElementById('view-fan') : null;
+                           
+        if (!activeView) return;
+
+        const points = activeView.querySelectorAll('.test-point');
+        points.forEach(tp => {
+            const tpRect = tp.getBoundingClientRect();
+            if (tipX >= tpRect.left && tipX <= tpRect.right &&
+                tipY >= tpRect.top && tipY <= tpRect.bottom) {
+                touchedType = tp.getAttribute('data-type');
+                tp.classList.add('touched');
+            }
+        });
+
+        state.probes[color] = touchedType;
+        refreshTestPointVisuals();
+        updateMultimeter();
+    }
+
+    function refreshTestPointVisuals() {
+        document.querySelectorAll('.test-point').forEach(tp => tp.classList.remove('touched'));
+        const activeTypes = [state.probes.red, state.probes.black];
+        activeTypes.forEach(type => {
+            if (type) {
+                // 修正: 選取所有符合 data-type 的元素，確保不同 View 的共用點 (如 batt-gnd) 都能正確顯示高亮
+                const elements = document.querySelectorAll(`.test-point[data-type="${type}"]`);
+                elements.forEach(el => el.classList.add('touched'));
+            }
+        });
+    }
+
+    function setMode(m) {
+        state.mode = m;
+        updateModeButtons();
+        updateMultimeter();
+    }
+    
+    function updateModeButtons() {
+        document.querySelectorAll('.mm-knob-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.innerText.includes(state.mode === 'DCV' ? 'V' : state.mode === 'OHM' ? 'Ω' : 'OFF')) btn.classList.add('active');
+        });
+    }
+
+    // 針對手機版優化的探棒重置邏輯
+    function resetProbes() {
+        const isMobile = window.innerWidth <= 900;
+        
+        if (isMobile) {
+            // 手機版：探棒預設放在底部浮動
+            probeRed.style.top = '90%'; 
+            probeRed.style.left = '80%'; 
+            probeRed.style.transform = 'rotate(45deg)'; 
+            
+            probeBlack.style.top = '90%'; 
+            probeBlack.style.left = '20%'; 
+            probeBlack.style.transform = 'rotate(-45deg)';
+        } else {
+            // 電腦版：探棒預設放在右下
+            probeRed.style.top = '70%'; 
+            probeRed.style.left = '75%'; 
+            probeRed.style.transform = 'rotate(45deg)'; 
+            
+            probeBlack.style.top = '70%'; 
+            probeBlack.style.left = '60%'; 
+            probeBlack.style.transform = 'rotate(-45deg)'; 
+        }
+        
+        state.probes = { red: null, black: null };
+        state.rotation = { red: 45, black: -45 }; // 更新狀態記錄
+        refreshTestPointVisuals();
+        updateMultimeter();
+    }
+    
+    function drawWires() {
+        const draw = (pId, wId, sx, sy) => {
+            const p = document.getElementById(pId);
+            const w = document.getElementById(wId);
+            const rect = p.getBoundingClientRect();
+            const px = rect.left + rect.width/2;
+            const py = rect.top + rect.height/2;
+            
+            // 使用貝茲曲線模擬電線自然垂墜感
+            // 控制點設定：稍微往下垂
+            const cp1x = sx;
+            const cp1y = sy + 150; 
+            const cp2x = px;
+            const cp2y = py + 150;
+
+            const d = `M ${sx} ${sy} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${px} ${py}`;
+            w.setAttribute('d', d);
+        };
+        const mm = document.querySelector('.multimeter').getBoundingClientRect();
+        if(mm.width>0) {
+            // 電線起始點在電錶底部
+            draw('probe-red', 'wire-red', mm.left+mm.width*0.75, mm.bottom - 10);
+            draw('probe-black', 'wire-black', mm.left+mm.width*0.25, mm.bottom - 10);
+        }
+        requestAnimationFrame(drawWires);
+    }
+
+    initDraggable(document.getElementById('probe-red'), 'red');
+    initDraggable(document.getElementById('probe-black'), 'black');
+
+</script>
+</body>
+</html>
